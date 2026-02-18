@@ -1,9 +1,16 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { AnalysisResult } from "../types";
 
-// NOTE: In a real production environment, this should be accessed via process.env.API_KEY.
-// For this MVP, ensure the key is available in the environment variables.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// CORREÇÃO PARA VITE/VERCEL:
+// O Vite expõe variáveis de ambiente no cliente via import.meta.env.
+// Elas PRECISAM começar com VITE_ para serem visíveis no navegador.
+const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
+
+if (!apiKey) {
+  console.error("ERRO CRÍTICO: A variável de ambiente VITE_GOOGLE_API_KEY não foi encontrada. Certifique-se de adicioná-la no arquivo .env local e nas configurações de Environment Variables da Vercel.");
+}
+
+const ai = new GoogleGenAI({ apiKey: apiKey || "" });
 
 const responseSchema: Schema = {
   type: Type.OBJECT,
@@ -106,7 +113,7 @@ export const analyzeResume = async (resumeText: string, jobDescription: string):
     
     // Better error handling
     if (error.message?.includes('400')) errorMsg = "Erro de Requisição (400). Verifique se o PDF tem texto legível.";
-    if (error.message?.includes('403')) errorMsg = "Erro de Permissão (403). Verifique sua API Key e se o modelo gemini-2.0-flash está habilitado.";
+    if (error.message?.includes('403')) errorMsg = "Erro de Permissão (403). Verifique se a VITE_GOOGLE_API_KEY está correta nas variáveis de ambiente.";
     if (error.message?.includes('429')) errorMsg = "Muitas requisições. A cota gratuita foi excedida temporariamente.";
     if (error.message?.includes('500') || error.message?.includes('503')) errorMsg = "Serviço da IA indisponível no momento. Tente novamente em 1 minuto.";
 
