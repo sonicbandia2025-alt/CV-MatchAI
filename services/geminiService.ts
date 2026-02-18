@@ -1,16 +1,24 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { AnalysisResult } from "../types";
 
-// CORREÇÃO PARA VITE/VERCEL:
-// O Vite expõe variáveis de ambiente no cliente via import.meta.env.
-// Elas PRECISAM começar com VITE_ para serem visíveis no navegador.
-const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
+// Safe access to environment variables.
+// In raw ES modules environments (like some online sandboxes), import.meta.env might be undefined.
+const getApiKey = () => {
+  // Check if import.meta.env exists before accessing properties on it to avoid "Cannot read properties of undefined"
+  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GOOGLE_API_KEY) {
+    return import.meta.env.VITE_GOOGLE_API_KEY;
+  }
+  // Fallback key provided by user
+  return "AIzaSyDSwkK0xC79Ly1Nm_no0c0jTrBCnpqg9fw";
+};
+
+const apiKey = getApiKey();
 
 if (!apiKey) {
-  console.error("ERRO CRÍTICO: A variável de ambiente VITE_GOOGLE_API_KEY não foi encontrada. Certifique-se de adicioná-la no arquivo .env local e nas configurações de Environment Variables da Vercel.");
+  console.error("ERRO CRÍTICO: Não foi possível obter a API Key.");
 }
 
-const ai = new GoogleGenAI({ apiKey: apiKey || "" });
+const ai = new GoogleGenAI({ apiKey: apiKey });
 
 const responseSchema: Schema = {
   type: Type.OBJECT,
@@ -113,7 +121,7 @@ export const analyzeResume = async (resumeText: string, jobDescription: string):
     
     // Better error handling
     if (error.message?.includes('400')) errorMsg = "Erro de Requisição (400). Verifique se o PDF tem texto legível.";
-    if (error.message?.includes('403')) errorMsg = "Erro de Permissão (403). Verifique se a VITE_GOOGLE_API_KEY está correta nas variáveis de ambiente.";
+    if (error.message?.includes('403')) errorMsg = "Erro de Permissão (403). Verifique se a Chave da API está válida.";
     if (error.message?.includes('429')) errorMsg = "Muitas requisições. A cota gratuita foi excedida temporariamente.";
     if (error.message?.includes('500') || error.message?.includes('503')) errorMsg = "Serviço da IA indisponível no momento. Tente novamente em 1 minuto.";
 
