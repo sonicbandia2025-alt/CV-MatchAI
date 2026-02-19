@@ -4,18 +4,23 @@ import react from '@vitejs/plugin-react';
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  // MUDANÇA CRÍTICA PARA ESTRUTURA ESTÁTICA:
-  // O uso de './' torna os caminhos dos assets relativos ao arquivo HTML atual.
-  // Isso permite que o site funcione em QUALQUER pasta, subdomínio ou até localmente,
-  // eliminando o erro de "Tela Branca" no GitHub Pages independentemente do nome do repo.
+  // CRUCIAL PARA GITHUB PAGES:
+  // 'base: "./"' garante que os assets (JS/CSS) sejam linkados relativamente.
+  // Isso permite que o site funcione em https://usuario.github.io/nome-do-repo/ sem erros 404.
   base: './',
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    // Otimização para arquivos estáticos
+    sourcemap: false, // Desabilitado para economizar banda e ocultar código fonte original
+    minify: 'esbuild', // Minificação rápida e eficiente
     rollupOptions: {
       output: {
-        manualChunks: undefined,
+        // Separa bibliotecas grandes em arquivos diferentes para carregamento mais rápido (Cache)
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'recharts'],
+          pdf: ['pdfjs-dist'],
+          ai: ['@google/genai']
+        },
       },
     },
   },

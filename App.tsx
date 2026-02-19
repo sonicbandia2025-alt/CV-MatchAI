@@ -1,5 +1,4 @@
 import React, { useState, useCallback } from 'react';
-// Router removido para estrutura 100% estática e compatível com qualquer host
 import FileUpload from './components/FileUpload';
 import AdModal from './components/AdModal';
 import AnalysisResult from './components/AnalysisResult';
@@ -15,49 +14,58 @@ const App: React.FC = () => {
   const [isAdOpen, setIsAdOpen] = useState(false);
   const [extractedText, setExtractedText] = useState<string | null>(null);
 
-  // Step 1: Handle File Selection
+  // Manipula a seleção do arquivo PDF
   const handleFileSelect = (selectedFile: File) => {
     setFile(selectedFile);
     setProcessingState({ status: 'idle' });
+    setResult(null); // Reseta resultado anterior se trocar o arquivo
   };
 
-  // Step 2: Trigger the process (Show Ad First)
+  // Inicia o processo de análise
   const handleStartAnalysis = async () => {
     if (!file || !jobDescription.trim()) {
       alert("Por favor, faça upload do currículo e cole a descrição da vaga.");
       return;
     }
     
-    setProcessingState({ status: 'extracting', message: 'Lendo PDF...' });
+    // Feedback visual imediato
+    setProcessingState({ status: 'extracting', message: 'Lendo conteúdo do PDF...' });
     
     try {
+      // 1. Extração de texto (Local)
       const text = await extractTextFromPDF(file);
       setExtractedText(text);
-      // Once text is ready, open the "Ad" (Gamification/Monetization simulation)
+      
+      // 2. "Simulação" de Ad/Monetização (Gamification)
+      // O Ad abre APÓS a leitura do PDF ter sucesso
       setIsAdOpen(true);
       setProcessingState({ status: 'analyzing', message: 'Aguardando verificação...' });
     } catch (error: any) {
-      setProcessingState({ status: 'error', message: error.message || 'Erro ao ler PDF.' });
+      console.error(error);
+      setProcessingState({ status: 'error', message: error.message || 'Erro ao ler o arquivo PDF.' });
     }
   };
 
-  // Step 3: Executed when Ad countdown finishes
+  // Chamado quando o "Ad" termina (Callback)
   const handleAdComplete = useCallback(async () => {
     setIsAdOpen(false);
     
     if (!extractedText) return;
 
-    setProcessingState({ status: 'analyzing', message: 'Consultando IA Gemini...' });
+    setProcessingState({ status: 'analyzing', message: 'Inteligência Artificial analisando perfil...' });
 
     try {
+      // 3. Chamada à IA
       const analysisData = await analyzeResume(extractedText, jobDescription);
       setResult(analysisData);
       setProcessingState({ status: 'success' });
     } catch (error: any) {
-      setProcessingState({ status: 'error', message: error.message || 'Erro na análise da IA.' });
+      console.error(error);
+      setProcessingState({ status: 'error', message: error.message || 'Erro ao conectar com a IA.' });
     }
   }, [extractedText, jobDescription]);
 
+  // Reiniciar tudo
   const handleReset = () => {
     setFile(null);
     setJobDescription('');
@@ -69,10 +77,10 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-12 font-sans">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="bg-blue-600 text-white p-1.5 rounded-lg">
+          <div className="flex items-center gap-2 cursor-pointer" onClick={handleReset}>
+            <div className="bg-blue-600 text-white p-1.5 rounded-lg shadow-sm">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                 <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
                 <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
@@ -81,19 +89,19 @@ const App: React.FC = () => {
             <h1 className="text-xl font-bold tracking-tight text-slate-900">CV Match<span className="text-blue-600">AI</span></h1>
           </div>
           <div className="text-xs font-medium bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full border border-blue-100">
-            BETA
+            v1.0
           </div>
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
-        {/* Intro */}
+        {/* Intro - Só mostra se não tiver resultado */}
         {!result && (
-          <div className="text-center mb-10">
-            <h2 className="text-3xl font-bold text-slate-900 mb-3">Otimize seu currículo com IA</h2>
-            <p className="text-lg text-slate-600">
-              Descubra se seu perfil combina com a vaga dos seus sonhos em segundos. Análise detalhada e implacável.
+          <div className="text-center mb-10 animate-in slide-in-from-bottom-4 fade-in duration-700">
+            <h2 className="text-3xl font-extrabold text-slate-900 mb-3 tracking-tight">Otimize seu currículo com IA</h2>
+            <p className="text-lg text-slate-600 max-w-2xl mx-auto">
+              Descubra se seu perfil combina com a vaga dos seus sonhos em segundos. Análise técnica detalhada e implacável.
             </p>
           </div>
         )}
@@ -101,7 +109,7 @@ const App: React.FC = () => {
         {result ? (
           <AnalysisResult result={result} onReset={handleReset} />
         ) : (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 md:p-8 space-y-8">
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 md:p-8 space-y-8 animate-in zoom-in-95 duration-500">
             
             {/* File Upload Section */}
             <FileUpload onFileSelect={handleFileSelect} selectedFile={file} />
@@ -115,7 +123,7 @@ const App: React.FC = () => {
                 <textarea
                   id="job-desc"
                   rows={6}
-                  className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-4 border bg-slate-50 resize-none"
+                  className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-4 border bg-slate-50 resize-none transition-shadow focus:shadow-md"
                   placeholder="Cole aqui o texto completo da descrição da vaga (Requisitos, Responsabilidades, etc)..."
                   value={jobDescription}
                   onChange={(e) => setJobDescription(e.target.value)}
@@ -127,10 +135,10 @@ const App: React.FC = () => {
             <button
               onClick={handleStartAnalysis}
               disabled={!file || !jobDescription || processingState.status === 'extracting'}
-              className={`w-full flex items-center justify-center py-4 px-4 border border-transparent rounded-lg shadow-sm text-base font-medium text-white transition-all
+              className={`w-full flex items-center justify-center py-4 px-4 border border-transparent rounded-lg shadow-sm text-base font-medium text-white transition-all duration-200
                 ${(!file || !jobDescription) 
                   ? 'bg-slate-300 cursor-not-allowed' 
-                  : 'bg-blue-600 hover:bg-blue-700 hover:shadow-lg transform hover:-translate-y-0.5'
+                  : 'bg-blue-600 hover:bg-blue-700 hover:shadow-lg transform hover:-translate-y-0.5 active:translate-y-0'
                 }`}
             >
               {processingState.status === 'extracting' ? (
@@ -148,7 +156,7 @@ const App: React.FC = () => {
 
             {/* Error Message */}
             {processingState.status === 'error' && (
-              <div className="rounded-md bg-red-50 p-4 border border-red-200">
+              <div className="rounded-md bg-red-50 p-4 border border-red-200 animate-in shake">
                 <div className="flex">
                   <div className="flex-shrink-0">
                     <svg className="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">

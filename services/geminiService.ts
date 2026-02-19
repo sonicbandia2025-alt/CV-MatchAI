@@ -1,13 +1,18 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { AnalysisResult } from "../types";
 
-// Configuração para Ambiente Estático
+// Função robusta para obter a API Key em qualquer ambiente (Dev local, Build, GitHub Pages)
 const getApiKey = () => {
+  // 1. Tenta pegar do import.meta.env (Padrão Vite)
+  // Casting para 'any' evita erros de TS se a tipagem não estiver configurada
   const meta = import.meta as any;
-  if (typeof meta !== 'undefined' && meta.env && meta.env.VITE_GOOGLE_API_KEY) {
+  if (meta && meta.env && meta.env.VITE_GOOGLE_API_KEY) {
     return meta.env.VITE_GOOGLE_API_KEY;
   }
-  // Chave injetada manualmente conforme solicitado
+  
+  // 2. Fallback Hardcoded: Essencial para GitHub Pages se o .env não for buildado junto
+  // NOTA: Em produção real comercial, isso seria ocultado via Proxy/Backend. 
+  // Para Micro SaaS MVP estático, isso é aceitável com limites de cota no Google Cloud Console.
   return "AIzaSyDSwkK0xC79Ly1Nm_no0c0jTrBCnpqg9fw";
 };
 
@@ -60,7 +65,7 @@ const responseSchema: Schema = {
 
 export const analyzeResume = async (resumeText: string, jobDescription: string): Promise<AnalysisResult> => {
   try {
-    // Usando gemini-3-flash-preview por ser o modelo recomendado para tarefas de texto
+    // Usando gemini-3-flash-preview por ser o modelo recomendado para tarefas de texto rápidas
     const model = 'gemini-3-flash-preview';
     
     const prompt = `
@@ -103,7 +108,7 @@ export const analyzeResume = async (resumeText: string, jobDescription: string):
     if (response.text) {
       let cleanText = response.text.trim();
       
-      // Remove markdown code blocks if present (common cause of parsing errors)
+      // Sanitização de JSON (remove blocos de código Markdown se a IA os incluir)
       if (cleanText.startsWith('```json')) {
         cleanText = cleanText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
       } else if (cleanText.startsWith('```')) {
@@ -118,11 +123,11 @@ export const analyzeResume = async (resumeText: string, jobDescription: string):
     console.error("Gemini API Error:", error);
     let errorMsg = "Falha ao analisar o currículo.";
     
-    // Better error handling
+    // Tratamento de erros amigável para o usuário
     if (error.message?.includes('400')) errorMsg = "Erro de Requisição (400). Verifique se o PDF tem texto legível.";
-    if (error.message?.includes('403')) errorMsg = "Erro de Permissão (403). Verifique se a Chave da API está válida.";
+    if (error.message?.includes('403')) errorMsg = "Erro de Permissão. Chave de API inválida.";
     if (error.message?.includes('429')) errorMsg = "Muitas requisições. A cota gratuita foi excedida temporariamente.";
-    if (error.message?.includes('500') || error.message?.includes('503')) errorMsg = "Serviço da IA indisponível no momento. Tente novamente em 1 minuto.";
+    if (error.message?.includes('500') || error.message?.includes('503')) errorMsg = "Serviço da IA instável. Tente novamente em 1 minuto.";
 
     throw new Error(errorMsg);
   }
