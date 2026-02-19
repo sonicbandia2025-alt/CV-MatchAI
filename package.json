@@ -9,13 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react-dom": "^19.2.4",
-    "@google/genai": "^1.41.0",
     "react": "^19.2.4",
-    "recharts": "^3.7.0",
-    "pdfjs-dist": "4.10.38",
+    "@vitejs/plugin-react": "^5.1.4",
+    "react-dom": "^19.2.4",
     "vite": "^7.3.1",
-    "@vitejs/plugin-react": "^5.1.4"
+    "@google/genai": "^1.42.0",
+    "recharts": "^3.7.0",
+    "pdfjs-dist": "^5.4.624"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
