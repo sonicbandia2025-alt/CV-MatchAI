@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+// Router removido para estrutura 100% estática e compatível com qualquer host
 import FileUpload from './components/FileUpload';
 import AdModal from './components/AdModal';
 import AnalysisResult from './components/AnalysisResult';
@@ -27,8 +28,6 @@ const App: React.FC = () => {
       return;
     }
     
-    // Start Extraction immediately while waiting for ad? 
-    // Ideally we extract first to ensure valid PDF, then show ad while "analyzing".
     setProcessingState({ status: 'extracting', message: 'Lendo PDF...' });
     
     try {
@@ -68,7 +67,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-12">
+    <div className="min-h-screen bg-slate-50 text-slate-900 pb-12 font-sans">
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">

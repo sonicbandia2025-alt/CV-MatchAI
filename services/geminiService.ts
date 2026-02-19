@@ -1,14 +1,13 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { AnalysisResult } from "../types";
 
-// Safe access to environment variables.
-// In raw ES modules environments (like some online sandboxes), import.meta.env might be undefined.
+// Configuração para Ambiente Estático
 const getApiKey = () => {
-  // Check if import.meta.env exists before accessing properties on it to avoid "Cannot read properties of undefined"
-  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GOOGLE_API_KEY) {
-    return import.meta.env.VITE_GOOGLE_API_KEY;
+  const meta = import.meta as any;
+  if (typeof meta !== 'undefined' && meta.env && meta.env.VITE_GOOGLE_API_KEY) {
+    return meta.env.VITE_GOOGLE_API_KEY;
   }
-  // Fallback key provided by user
+  // Chave injetada manualmente conforme solicitado
   return "AIzaSyDSwkK0xC79Ly1Nm_no0c0jTrBCnpqg9fw";
 };
 
@@ -61,8 +60,8 @@ const responseSchema: Schema = {
 
 export const analyzeResume = async (resumeText: string, jobDescription: string): Promise<AnalysisResult> => {
   try {
-    // Usando gemini-2.0-flash por ser altamente estável e gratuito
-    const model = 'gemini-2.0-flash';
+    // Usando gemini-3-flash-preview por ser o modelo recomendado para tarefas de texto
+    const model = 'gemini-3-flash-preview';
     
     const prompt = `
       Descrição da Vaga (Requirements):
