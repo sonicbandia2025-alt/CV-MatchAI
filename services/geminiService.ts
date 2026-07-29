@@ -76,7 +76,12 @@ export const analyzeResume = async (resumeText: string, jobDescription: string):
 
   // Fallback: Direct client-side SDK call
   try {
-    const modelsToTry = ['gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+    const modelsToTry = [
+      "gemini-2.0-flash",
+      "gemini-2.0-flash-lite",
+      "gemini-1.5-flash",
+      "gemini-3-flash-preview",
+    ];
     let lastError: any = null;
     let responseText: string | null = null;
     
@@ -110,25 +115,31 @@ export const analyzeResume = async (resumeText: string, jobDescription: string):
     Retorne APENAS JSON válido conforme o schema.`;
 
     for (const model of modelsToTry) {
-      try {
-        const response = await ai.models.generateContent({
-          model: model,
-          contents: prompt,
-          config: {
-            systemInstruction: systemInstruction,
-            responseMimeType: "application/json",
-            responseSchema: responseSchema,
-          },
-        });
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+            config: {
+              systemInstruction: systemInstruction,
+              responseMimeType: "application/json",
+              responseSchema: responseSchema,
+            },
+          });
 
-        if (response.text) {
-          responseText = response.text;
-          break;
+          if (response.text) {
+            responseText = response.text;
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`Client attempt ${attempt} with model ${model} failed:`, err.message || err);
+          lastError = err;
+          if (attempt < 2 && (err.message?.includes("503") || err.message?.includes("429"))) {
+            await new Promise((res) => setTimeout(res, 800));
+          }
         }
-      } catch (err: any) {
-        console.warn(`Client attempt with model ${model} failed:`, err.message || err);
-        lastError = err;
       }
+      if (responseText) break;
     }
 
     if (!responseText) {

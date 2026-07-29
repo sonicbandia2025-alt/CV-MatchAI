@@ -83,8 +83,13 @@ app.post("/api/analyze", async (req, res) => {
     }
 
     const ai = new GoogleGenAI({ apiKey });
-    // Primary and fallback models
-    const modelsToTry = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.0-flash"];
+    // Models to try in order of stability and speed
+    const modelsToTry = [
+      "gemini-2.0-flash",
+      "gemini-2.0-flash-lite",
+      "gemini-1.5-flash",
+      "gemini-3-flash-preview",
+    ];
     let lastError: any = null;
     let responseText: string | null = null;
 
@@ -117,27 +122,34 @@ app.post("/api/analyze", async (req, res) => {
     
     Retorne APENAS JSON válido conforme o schema.`;
 
+    // Try models with built-in retry for transient 503/429 errors
     for (const model of modelsToTry) {
-      try {
-        const response = await ai.models.generateContent({
-          model: model,
-          contents: prompt,
-          config: {
-            systemInstruction: systemInstruction,
-            responseMimeType: "application/json",
-            responseSchema: responseSchema,
-          },
-        });
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+            config: {
+              systemInstruction: systemInstruction,
+              responseMimeType: "application/json",
+              responseSchema: responseSchema,
+            },
+          });
 
-        if (response.text) {
-          responseText = response.text;
-          break; // Success!
+          if (response.text) {
+            responseText = response.text;
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`Attempt ${attempt} with model ${model} failed:`, err.message || err);
+          lastError = err;
+          // Wait 800ms before retrying on 503 / 429
+          if (attempt < 2 && (err.message?.includes("503") || err.message?.includes("429"))) {
+            await new Promise((res) => setTimeout(res, 800));
+          }
         }
-      } catch (err: any) {
-        console.warn(`Attempt with model ${model} failed:`, err.message || err);
-        lastError = err;
-        // Continue to next model in loop if 503, 500, or 429 occurs
       }
+      if (responseText) break;
     }
 
     if (!responseText) {
