@@ -1,5 +1,6 @@
 {
   "name": "CV Match AI",
   "description": "Analisador de currículos com IA que compara PDFs com descrições de vagas. Processamento local e análise via Gemini.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

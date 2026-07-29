@@ -1,28 +1,9 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { AnalysisResult } from "../types";
 
-// Função robusta para obter a API Key em qualquer ambiente (Dev local, Build, GitHub Pages)
-const getApiKey = () => {
-  // 1. Tenta pegar do import.meta.env (Padrão Vite)
-  // Casting para 'any' evita erros de TS se a tipagem não estiver configurada
-  const meta = import.meta as any;
-  if (meta && meta.env && meta.env.VITE_GOOGLE_API_KEY) {
-    return meta.env.VITE_GOOGLE_API_KEY;
-  }
-  
-  // 2. Fallback Hardcoded: Essencial para GitHub Pages se o .env não for buildado junto
-  // NOTA: Em produção real comercial, isso seria ocultado via Proxy/Backend. 
-  // Para Micro SaaS MVP estático, isso é aceitável com limites de cota no Google Cloud Console.
-  return "AIzaSyDSwkK0xC79Ly1Nm_no0c0jTrBCnpqg9fw";
-};
-
-const apiKey = getApiKey();
-
-if (!apiKey) {
-  console.error("ERRO CRÍTICO: Não foi possível obter a API Key.");
-}
-
-const ai = new GoogleGenAI({ apiKey: apiKey });
+// Safe access to environment variables.
+// In raw ES modules environments (like some online sandboxes), import.meta.env might be undefined.
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
 
 const responseSchema: Schema = {
   type: Type.OBJECT,
@@ -64,8 +45,37 @@ const responseSchema: Schema = {
 };
 
 export const analyzeResume = async (resumeText: string, jobDescription: string): Promise<AnalysisResult> => {
+  // First attempt: Call Express backend /api/analyze endpoint
   try {
-    // Usando gemini-3-flash-preview por ser o modelo recomendado para tarefas de texto rápidas
+    const apiResponse = await fetch("/api/analyze", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ resumeText, jobDescription }),
+    });
+
+    if (apiResponse.ok) {
+      const data = await apiResponse.json();
+      return data as AnalysisResult;
+    }
+
+    // If server returned a structured error response
+    if (apiResponse.headers.get("content-type")?.includes("application/json")) {
+      const errData = await apiResponse.json();
+      if (errData.error) {
+        throw new Error(errData.error);
+      }
+    }
+  } catch (apiError: any) {
+    // If backend endpoint threw an explicit error message, rethrow it
+    if (apiError.message && !apiError.message.includes("Failed to fetch")) {
+      console.warn("Backend API returned error, attempting fallback:", apiError.message);
+    }
+  }
+
+  // Fallback: Direct client-side SDK call
+  try {
     const model = 'gemini-3-flash-preview';
     
     const prompt = `
@@ -84,20 +94,20 @@ export const analyzeResume = async (resumeText: string, jobDescription: string):
         systemInstruction: `Você é um algoritmo de ATS (Applicant Tracking System) e um Recrutador Técnico RÍGIDO. 
 
         DIRETRIZES DE PONTUAÇÃO (CRITICAMENTE IMPORTANTE):
-        1. CRITÉRIO DE ELIMINAÇÃO (Formação/Área): Se a vaga exige uma formação específica (ex: Educação Física, Direito, Medicina, Engenharia) e o candidato NÃO tem a formação exata ou experiência direta na área (ex: é um candidato Administrativo tentando vaga técnica), o SCORE DEVE SER BAIXO (entre 0 e 35).
+        1. CRITÉRIO DE ELIMINAÇÃO (Formação/Área): Se a vaga exige uma formação específica e o candidato NÃO tem a formação exata ou experiência direta na área, o SCORE DEVE SER BAIXO (entre 0 e 35).
         
-        2. NÃO COMPENSE COM SOFT SKILLS: "Comunicação", "Organização" ou "Vontade de aprender" NÃO devem aumentar o score se os requisitos técnicos obrigatórios (Hard Skills) não existirem. Soft skills valem no máximo 10% da nota.
+        2. NÃO COMPENSE COM SOFT SKILLS: Soft skills valem no máximo 10% da nota.
         
         3. ESCALA DE SCORE REALISTA:
-           - 0-40: Perfil incompatível (Falta formação base ou experiência na área).
-           - 41-60: Perfil júnior ou transição de carreira (Tem a formação, falta experiência).
-           - 61-80: Perfil compatível (Atende a maioria dos requisitos).
-           - 81-100: Perfil ideal (Match perfeito).
+           - 0-40: Perfil incompatível.
+           - 41-60: Perfil júnior ou transição de carreira.
+           - 61-80: Perfil compatível.
+           - 81-100: Perfil ideal.
 
         Sua tarefa:
         1. Analise friamente a compatibilidade técnica.
         2. Identifique as palavras-chave faltantes.
-        3. Crie uma sugestão de texto para o 'Resumo Profissional' para tentar salvar o currículo, mas mantenha o score honesto.
+        3. Crie uma sugestão de texto para o 'Resumo Profissional'.
         
         Retorne APENAS JSON válido conforme o schema.`,
         responseMimeType: "application/json",
@@ -107,8 +117,6 @@ export const analyzeResume = async (resumeText: string, jobDescription: string):
 
     if (response.text) {
       let cleanText = response.text.trim();
-      
-      // Sanitização de JSON (remove blocos de código Markdown se a IA os incluir)
       if (cleanText.startsWith('```json')) {
         cleanText = cleanText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
       } else if (cleanText.startsWith('```')) {
@@ -123,11 +131,10 @@ export const analyzeResume = async (resumeText: string, jobDescription: string):
     console.error("Gemini API Error:", error);
     let errorMsg = "Falha ao analisar o currículo.";
     
-    // Tratamento de erros amigável para o usuário
     if (error.message?.includes('400')) errorMsg = "Erro de Requisição (400). Verifique se o PDF tem texto legível.";
-    if (error.message?.includes('403')) errorMsg = "Erro de Permissão. Chave de API inválida.";
+    if (error.message?.includes('403')) errorMsg = "Erro de Permissão (403). Verifique se a Chave da API está válida.";
     if (error.message?.includes('429')) errorMsg = "Muitas requisições. A cota gratuita foi excedida temporariamente.";
-    if (error.message?.includes('500') || error.message?.includes('503')) errorMsg = "Serviço da IA instável. Tente novamente em 1 minuto.";
+    if (error.message?.includes('500') || error.message?.includes('503')) errorMsg = "Serviço da IA indisponível no momento. Tente novamente em 1 minuto.";
 
     throw new Error(errorMsg);
   }

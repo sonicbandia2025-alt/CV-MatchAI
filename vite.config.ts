@@ -1,17 +1,16 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
-  // Mantém base relativa para funcionar em qualquer subpasta
-  base: './',
-  build: {
-    outDir: 'dist',
-    assetsDir: 'assets',
-    sourcemap: false,
-    minify: 'esbuild',
-    // Removido manualChunks para evitar problemas de ordem de carregamento em conexões lentas ou estáticas
-    // O Vite cuidará da divisão automática
+  plugins: [
+    react(),
+    tailwindcss(),
+  ],
+  define: {
+    'process.env.GEMINI_API_KEY': JSON.stringify(process.env.GEMINI_API_KEY)
   },
+  // Caminho base configurado para suportar tanto domínio próprio/Hostinger quanto subcaminho do GitHub Pages
+  base: process.env.VITE_BASE_PATH || '/',
 });
