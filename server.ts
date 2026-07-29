@@ -58,15 +58,42 @@ const responseSchema: Schema = {
   ],
 };
 
+// Helper to robustly parse JSON from Gemini output
+function parseJsonResponse(rawText: string): any {
+  let cleanText = rawText.trim();
+  if (cleanText.startsWith("```json")) {
+    cleanText = cleanText.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+  } else if (cleanText.startsWith("```")) {
+    cleanText = cleanText.replace(/^```\s*/, "").replace(/\s*```$/, "");
+  }
+
+  try {
+    return JSON.parse(cleanText);
+  } catch (e) {
+    const startIdx = cleanText.indexOf("{");
+    const endIdx = cleanText.lastIndexOf("}");
+    if (startIdx !== -1 && endIdx > startIdx) {
+      const jsonSub = cleanText.substring(startIdx, endIdx + 1);
+      return JSON.parse(jsonSub);
+    }
+    throw new Error(`Falha ao converter resposta da IA para JSON: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 // API Health Check
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", service: "CV Match AI Server", timestamp: new Date().toISOString() });
+  res.json({
+    status: "ok",
+    service: "CV Match AI Server",
+    hasApiKey: !!process.env.GEMINI_API_KEY,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // API Route for Analyzing Resume via Server-side Gemini API
 app.post("/api/analyze", async (req, res) => {
   try {
-    const { resumeText, jobDescription } = req.body;
+    let { resumeText, jobDescription } = req.body;
 
     if (!resumeText || !jobDescription) {
       return res.status(400).json({
@@ -74,24 +101,21 @@ app.post("/api/analyze", async (req, res) => {
       });
     }
 
+    // Sanitize and limit length to avoid oversized payload issues
+    resumeText = String(resumeText).slice(0, 15000);
+    jobDescription = String(jobDescription).slice(0, 10000);
+
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       console.error("ERRO: GEMINI_API_KEY não definida nas variáveis de ambiente.");
       return res.status(500).json({
-        error: "Chave da API do Gemini não configurada no servidor. Configure a variável GEMINI_API_KEY.",
+        error: "Chave da API do Gemini não configurada no servidor.",
+        details: "A variável GEMINI_API_KEY está ausente no ambiente do servidor.",
       });
     }
 
     const ai = new GoogleGenAI({ apiKey });
-    // Models to try in order of stability and speed
-    const modelsToTry = [
-      "gemini-2.0-flash",
-      "gemini-2.0-flash-lite",
-      "gemini-1.5-flash",
-      "gemini-3-flash-preview",
-    ];
-    let lastError: any = null;
-    let responseText: string | null = null;
+    const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"];
 
     const prompt = `
       Descrição da Vaga (Requirements):
@@ -100,80 +124,89 @@ app.post("/api/analyze", async (req, res) => {
       ---
       Conteúdo do Currículo (Candidate Profile):
       ${resumeText}
+
+      Por favor, analise a compatibilidade entre o currículo e a vaga.
+      Retorne APENAS um objeto JSON válido com a seguinte estrutura estrita:
+      - score (inteiro de 0 a 100)
+      - pontos_fortes (array de 3 strings)
+      - pontos_fracos (array de 3 strings)
+      - palavras_chave_ausentes (array de 5 a 8 strings de hard skills)
+      - plano_acao (array de 3 a 5 strings de ações práticas)
+      - sugestao_resumo_profissional (string de 3 a 4 frases)
+      - veredito_final (string com 2 linhas de recomendação)
     `;
 
-    const systemInstruction = `Você é um algoritmo de ATS (Applicant Tracking System) e um Recrutador Técnico RÍGIDO. 
+    const systemInstruction = `Você é um algoritmo de ATS (Applicant Tracking System) e um Recrutador Técnico RÍGIDO.
+    1. Se a vaga exige formação específica e o candidato não tem, o score DEVE ser entre 0 e 35.
+    2. Soft skills valem no máximo 10% da nota.
+    3. Retorne estritamente em formato JSON válido conforme solicitado.`;
 
-    DIRETRIZES DE PONTUAÇÃO (CRITICAMENTE IMPORTANTE):
-    1. CRITÉRIO DE ELIMINAÇÃO (Formação/Área): Se a vaga exige uma formação específica (ex: Educação Física, Direito, Medicina, Engenharia) e o candidato NÃO tem a formação exata ou experiência direta na área, o SCORE DEVE SER BAIXO (entre 0 e 35).
-    
-    2. NÃO COMPENSE COM SOFT SKILLS: "Comunicação", "Organização" ou "Vontade de aprender" NÃO devem aumentar o score se os requisitos técnicos obrigatórios (Hard Skills) não existirem. Soft skills valem no máximo 10% da nota.
-    
-    3. ESCALA DE SCORE REALISTA:
-       - 0-40: Perfil incompatível.
-       - 41-60: Perfil júnior ou transição de carreira.
-       - 61-80: Perfil compatível.
-       - 81-100: Perfil ideal.
+    let responseText: string | null = null;
+    let lastError: any = null;
 
-    Sua tarefa:
-    1. Analise friamente a compatibilidade técnica.
-    2. Identifique as palavras-chave faltantes.
-    3. Crie uma sugestão de texto para o 'Resumo Profissional'.
-    
-    Retorne APENAS JSON válido conforme o schema.`;
-
-    // Try models with built-in retry for transient 503/429 errors
     for (const model of modelsToTry) {
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          const response = await ai.models.generateContent({
-            model: model,
-            contents: prompt,
-            config: {
-              systemInstruction: systemInstruction,
-              responseMimeType: "application/json",
-              responseSchema: responseSchema,
-            },
-          });
+      // Strategy 1: Structured Output with Schema
+      try {
+        console.log(`[SERVER] Tentando modelo ${model} com Schema...`);
+        const response = await ai.models.generateContent({
+          model: model,
+          contents: prompt,
+          config: {
+            systemInstruction: systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema: responseSchema,
+          },
+        });
 
-          if (response.text) {
-            responseText = response.text;
-            break;
-          }
-        } catch (err: any) {
-          console.warn(`Attempt ${attempt} with model ${model} failed:`, err.message || err);
-          lastError = err;
-          // Wait 800ms before retrying on 503 / 429
-          if (attempt < 2 && (err.message?.includes("503") || err.message?.includes("429"))) {
-            await new Promise((res) => setTimeout(res, 800));
-          }
+        if (response.text) {
+          responseText = response.text;
+          console.log(`[SERVER] Sucesso com modelo ${model} (com Schema)`);
+          break;
         }
+      } catch (err: any) {
+        console.warn(`[SERVER] Falha modelo ${model} (com Schema):`, err.message || err);
+        lastError = err;
       }
-      if (responseText) break;
+
+      // Strategy 2: Direct JSON mode without strict Schema
+      try {
+        console.log(`[SERVER] Tentando modelo ${model} sem Schema...`);
+        const response = await ai.models.generateContent({
+          model: model,
+          contents: prompt,
+          config: {
+            systemInstruction: systemInstruction,
+            responseMimeType: "application/json",
+          },
+        });
+
+        if (response.text) {
+          responseText = response.text;
+          console.log(`[SERVER] Sucesso com modelo ${model} (sem Schema)`);
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`[SERVER] Falha modelo ${model} (sem Schema):`, err.message || err);
+        lastError = err;
+      }
     }
 
     if (!responseText) {
-      throw lastError || new Error("A resposta da IA veio vazia de todos os modelos tentados.");
+      console.error("[SERVER] Todos os modelos e estratégias falharam:", lastError);
+      return res.status(503).json({
+        error: "Serviço da IA (Gemini) indisponível no momento.",
+        details: lastError?.message || "Sem resposta dos modelos de IA.",
+      });
     }
 
-    let cleanText = responseText.trim();
-    if (cleanText.startsWith("```json")) {
-      cleanText = cleanText.replace(/^```json\s*/, "").replace(/\s*```$/, "");
-    } else if (cleanText.startsWith("```")) {
-      cleanText = cleanText.replace(/^```\s*/, "").replace(/\s*```$/, "");
-    }
-
-    const result = JSON.parse(cleanText);
+    const result = parseJsonResponse(responseText);
     return res.json(result);
   } catch (error: any) {
     console.error("Gemini API Error in Server:", error);
-    let errorMsg = "Falha ao analisar o currículo no servidor.";
-    if (error.message?.includes("400")) errorMsg = "Erro de Requisição (400). Verifique se o PDF tem texto legível.";
-    if (error.message?.includes("403")) errorMsg = "Erro de Permissão (403). Verifique se a Chave da API está válida.";
-    if (error.message?.includes("429")) errorMsg = "Muitas requisições. Cota excedida temporariamente.";
-    if (error.message?.includes("500") || error.message?.includes("503")) errorMsg = "Serviço da IA indisponível no momento. Tente novamente em instantes.";
-
-    return res.status(500).json({ error: errorMsg, details: error.message });
+    return res.status(500).json({
+      error: "Falha ao analisar o currículo no servidor.",
+      details: error.message || String(error),
+    });
   }
 });
 

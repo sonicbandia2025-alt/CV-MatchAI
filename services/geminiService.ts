@@ -45,7 +45,7 @@ const responseSchema: Schema = {
 };
 
 export const analyzeResume = async (resumeText: string, jobDescription: string): Promise<AnalysisResult> => {
-  // First attempt: Call Express backend /api/analyze endpoint
+  // 1. First attempt: Call Express backend /api/analyze endpoint
   try {
     const apiResponse = await fetch("/api/analyze", {
       method: "POST",
@@ -55,95 +55,99 @@ export const analyzeResume = async (resumeText: string, jobDescription: string):
       body: JSON.stringify({ resumeText, jobDescription }),
     });
 
-    if (apiResponse.ok) {
-      const data = await apiResponse.json();
+    const data = await apiResponse.json().catch(() => null);
+
+    if (apiResponse.ok && data) {
       return data as AnalysisResult;
     }
 
-    // If server returned a structured error response
-    if (apiResponse.headers.get("content-type")?.includes("application/json")) {
-      const errData = await apiResponse.json();
-      if (errData.error) {
-        throw new Error(errData.error);
-      }
+    if (data && data.error) {
+      const msg = data.details ? `${data.error} Detalhes: ${data.details}` : data.error;
+      throw new Error(msg);
     }
   } catch (apiError: any) {
-    // If backend endpoint threw an explicit error message, rethrow it
     if (apiError.message && !apiError.message.includes("Failed to fetch")) {
-      console.warn("Backend API returned error, attempting fallback:", apiError.message);
+      console.warn("Express endpoint error:", apiError.message);
+      throw apiError;
     }
+    console.warn("Express backend endpoint unreachable, attempting client fallback...", apiError);
   }
 
-  // Fallback: Direct client-side SDK call
+  // 2. Client-side SDK Fallback
   try {
-    const modelsToTry = [
-      "gemini-2.0-flash",
-      "gemini-2.0-flash-lite",
-      "gemini-1.5-flash",
-      "gemini-3-flash-preview",
-    ];
-    let lastError: any = null;
-    let responseText: string | null = null;
-    
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("Chave GEMINI_API_KEY não foi configurada para o cliente.");
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"];
+
+    const sanitizedResume = String(resumeText).slice(0, 15000);
+    const sanitizedJob = String(jobDescription).slice(0, 10000);
+
     const prompt = `
       Descrição da Vaga (Requirements):
-      ${jobDescription}
+      ${sanitizedJob}
 
       ---
       Conteúdo do Currículo (Candidate Profile):
-      ${resumeText}
+      ${sanitizedResume}
+
+      Por favor, analise a compatibilidade e retorne um objeto JSON estrito com os seguintes campos:
+      - score (número inteiro de 0 a 100)
+      - pontos_fortes (array de 3 strings)
+      - pontos_fracos (array de 3 strings)
+      - palavras_chave_ausentes (array de 5 a 8 strings)
+      - plano_acao (array de 3 a 5 strings)
+      - sugestao_resumo_profissional (string)
+      - veredito_final (string de 2 linhas)
     `;
 
-    const systemInstruction = `Você é um algoritmo de ATS (Applicant Tracking System) e um Recrutador Técnico RÍGIDO. 
+    const systemInstruction = `Você é um algoritmo de ATS e um Recrutador Técnico RÍGIDO. Retorne estritamente em formato JSON válido.`;
 
-    DIRETRIZES DE PONTUAÇÃO (CRITICAMENTE IMPORTANTE):
-    1. CRITÉRIO DE ELIMINAÇÃO (Formação/Área): Se a vaga exige uma formação específica e o candidato NÃO tem a formação exata ou experiência direta na área, o SCORE DEVE SER BAIXO (entre 0 e 35).
-    
-    2. NÃO COMPENSE COM SOFT SKILLS: Soft skills valem no máximo 10% da nota.
-    
-    3. ESCALA DE SCORE REALISTA:
-       - 0-40: Perfil incompatível.
-       - 41-60: Perfil júnior ou transição de carreira.
-       - 61-80: Perfil compatível.
-       - 81-100: Perfil ideal.
-
-    Sua tarefa:
-    1. Analise friamente a compatibilidade técnica.
-    2. Identifique as palavras-chave faltantes.
-    3. Crie uma sugestão de texto para o 'Resumo Profissional'.
-    
-    Retorne APENAS JSON válido conforme o schema.`;
+    let responseText: string | null = null;
+    let lastError: any = null;
 
     for (const model of modelsToTry) {
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          const response = await ai.models.generateContent({
-            model: model,
-            contents: prompt,
-            config: {
-              systemInstruction: systemInstruction,
-              responseMimeType: "application/json",
-              responseSchema: responseSchema,
-            },
-          });
-
-          if (response.text) {
-            responseText = response.text;
-            break;
-          }
-        } catch (err: any) {
-          console.warn(`Client attempt ${attempt} with model ${model} failed:`, err.message || err);
-          lastError = err;
-          if (attempt < 2 && (err.message?.includes("503") || err.message?.includes("429"))) {
-            await new Promise((res) => setTimeout(res, 800));
-          }
+      try {
+        const response = await ai.models.generateContent({
+          model: model,
+          contents: prompt,
+          config: {
+            systemInstruction: systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema: responseSchema,
+          },
+        });
+        if (response.text) {
+          responseText = response.text;
+          break;
         }
+      } catch (err: any) {
+        lastError = err;
       }
-      if (responseText) break;
+
+      try {
+        const response = await ai.models.generateContent({
+          model: model,
+          contents: prompt,
+          config: {
+            systemInstruction: systemInstruction,
+            responseMimeType: "application/json",
+          },
+        });
+        if (response.text) {
+          responseText = response.text;
+          break;
+        }
+      } catch (err: any) {
+        lastError = err;
+      }
     }
 
     if (!responseText) {
-      throw lastError || new Error("A resposta da IA veio vazia de todos os modelos tentados.");
+      throw lastError || new Error("Sem resposta do serviço da IA Gemini.");
     }
 
     let cleanText = responseText.trim();
@@ -153,16 +157,15 @@ export const analyzeResume = async (resumeText: string, jobDescription: string):
       cleanText = cleanText.replace(/^```\s*/, '').replace(/\s*```$/, '');
     }
 
+    const startIdx = cleanText.indexOf("{");
+    const endIdx = cleanText.lastIndexOf("}");
+    if (startIdx !== -1 && endIdx > startIdx) {
+      cleanText = cleanText.substring(startIdx, endIdx + 1);
+    }
+
     return JSON.parse(cleanText) as AnalysisResult;
   } catch (error: any) {
     console.error("Gemini API Error:", error);
-    let errorMsg = "Falha ao analisar o currículo.";
-    
-    if (error.message?.includes('400')) errorMsg = "Erro de Requisição (400). Verifique se o PDF tem texto legível.";
-    if (error.message?.includes('403')) errorMsg = "Erro de Permissão (403). Verifique se a Chave da API está válida.";
-    if (error.message?.includes('429')) errorMsg = "Muitas requisições. A cota gratuita foi excedida temporariamente.";
-    if (error.message?.includes('500') || error.message?.includes('503')) errorMsg = "Serviço da IA indisponível no momento. Tente novamente em 1 minuto.";
-
-    throw new Error(errorMsg);
+    throw new Error(error.message || "Falha ao analisar o currículo.");
   }
 };
