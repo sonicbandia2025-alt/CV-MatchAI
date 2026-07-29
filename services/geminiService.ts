@@ -1,10 +1,6 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { AnalysisResult } from "../types";
 
-// Safe access to environment variables.
-// In raw ES modules environments (like some online sandboxes), import.meta.env might be undefined.
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
-
 const responseSchema: Schema = {
   type: Type.OBJECT,
   properties: {

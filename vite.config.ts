@@ -9,7 +9,11 @@ export default defineConfig({
     tailwindcss(),
   ],
   define: {
-    'process.env.GEMINI_API_KEY': JSON.stringify(process.env.GEMINI_API_KEY)
+    'process.env.GEMINI_API_KEY': JSON.stringify(process.env.GEMINI_API_KEY || '')
+  },
+  server: {
+    host: '0.0.0.0',
+    port: 3000,
   },
   // Caminho base configurado para suportar tanto domínio próprio/Hostinger quanto subcaminho do GitHub Pages
   base: process.env.VITE_BASE_PATH || '/',
