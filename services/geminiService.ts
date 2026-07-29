@@ -76,7 +76,9 @@ export const analyzeResume = async (resumeText: string, jobDescription: string):
 
   // Fallback: Direct client-side SDK call
   try {
-    const model = 'gemini-3-flash-preview';
+    const modelsToTry = ['gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+    let lastError: any = null;
+    let responseText: string | null = null;
     
     const prompt = `
       Descrição da Vaga (Requirements):
@@ -87,46 +89,60 @@ export const analyzeResume = async (resumeText: string, jobDescription: string):
       ${resumeText}
     `;
 
-    const response = await ai.models.generateContent({
-      model: model,
-      contents: prompt,
-      config: {
-        systemInstruction: `Você é um algoritmo de ATS (Applicant Tracking System) e um Recrutador Técnico RÍGIDO. 
+    const systemInstruction = `Você é um algoritmo de ATS (Applicant Tracking System) e um Recrutador Técnico RÍGIDO. 
 
-        DIRETRIZES DE PONTUAÇÃO (CRITICAMENTE IMPORTANTE):
-        1. CRITÉRIO DE ELIMINAÇÃO (Formação/Área): Se a vaga exige uma formação específica e o candidato NÃO tem a formação exata ou experiência direta na área, o SCORE DEVE SER BAIXO (entre 0 e 35).
-        
-        2. NÃO COMPENSE COM SOFT SKILLS: Soft skills valem no máximo 10% da nota.
-        
-        3. ESCALA DE SCORE REALISTA:
-           - 0-40: Perfil incompatível.
-           - 41-60: Perfil júnior ou transição de carreira.
-           - 61-80: Perfil compatível.
-           - 81-100: Perfil ideal.
+    DIRETRIZES DE PONTUAÇÃO (CRITICAMENTE IMPORTANTE):
+    1. CRITÉRIO DE ELIMINAÇÃO (Formação/Área): Se a vaga exige uma formação específica e o candidato NÃO tem a formação exata ou experiência direta na área, o SCORE DEVE SER BAIXO (entre 0 e 35).
+    
+    2. NÃO COMPENSE COM SOFT SKILLS: Soft skills valem no máximo 10% da nota.
+    
+    3. ESCALA DE SCORE REALISTA:
+       - 0-40: Perfil incompatível.
+       - 41-60: Perfil júnior ou transição de carreira.
+       - 61-80: Perfil compatível.
+       - 81-100: Perfil ideal.
 
-        Sua tarefa:
-        1. Analise friamente a compatibilidade técnica.
-        2. Identifique as palavras-chave faltantes.
-        3. Crie uma sugestão de texto para o 'Resumo Profissional'.
-        
-        Retorne APENAS JSON válido conforme o schema.`,
-        responseMimeType: "application/json",
-        responseSchema: responseSchema,
-      },
-    });
+    Sua tarefa:
+    1. Analise friamente a compatibilidade técnica.
+    2. Identifique as palavras-chave faltantes.
+    3. Crie uma sugestão de texto para o 'Resumo Profissional'.
+    
+    Retorne APENAS JSON válido conforme o schema.`;
 
-    if (response.text) {
-      let cleanText = response.text.trim();
-      if (cleanText.startsWith('```json')) {
-        cleanText = cleanText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-      } else if (cleanText.startsWith('```')) {
-        cleanText = cleanText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    for (const model of modelsToTry) {
+      try {
+        const response = await ai.models.generateContent({
+          model: model,
+          contents: prompt,
+          config: {
+            systemInstruction: systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema: responseSchema,
+          },
+        });
+
+        if (response.text) {
+          responseText = response.text;
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`Client attempt with model ${model} failed:`, err.message || err);
+        lastError = err;
       }
-
-      return JSON.parse(cleanText) as AnalysisResult;
-    } else {
-      throw new Error("A resposta da IA veio vazia.");
     }
+
+    if (!responseText) {
+      throw lastError || new Error("A resposta da IA veio vazia de todos os modelos tentados.");
+    }
+
+    let cleanText = responseText.trim();
+    if (cleanText.startsWith('```json')) {
+      cleanText = cleanText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    } else if (cleanText.startsWith('```')) {
+      cleanText = cleanText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    }
+
+    return JSON.parse(cleanText) as AnalysisResult;
   } catch (error: any) {
     console.error("Gemini API Error:", error);
     let errorMsg = "Falha ao analisar o currículo.";
